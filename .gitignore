@@ -1,0 +1,16 @@
+node_modules
+.DS_Store
+.env
+.env.local
+dist
+build
+.svelte-kit
+uploads/*
+!uploads/.gitkeep
+*.log
+.vite
+test-results
+playwright-report
+blob-report
+playwright/.cache
+.vercel

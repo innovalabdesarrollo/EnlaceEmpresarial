@@ -1,0 +1,22 @@
+{
+  "name": "enlace-empresarial",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "dev:api": "pnpm --filter @enlace/api dev",
+    "dev:web": "pnpm --filter @enlace/web dev",
+    "build": "pnpm -r run build",
+    "seed": "pnpm --filter @enlace/api seed",
+    "test": "pnpm --filter @enlace/api test",
+    "test:e2e": "playwright test",
+    "test:e2e:preview": "pnpm --filter @enlace/web build && PLAYWRIGHT_NO_WEBSERVER=1 playwright test",
+    "audit": "pnpm audit --prod"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "@enlace/web",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --host 127.0.0.1 --port 5710 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 5710",
+    "prepare": "svelte-kit sync || echo ''",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-vercel": "^7.0.2",
+    "@sveltejs/kit": "^3.0.0",
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "@tailwindcss/vite": "^4.3.4",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.6.0",
+    "tailwindcss": "^4.3.4",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.0"
+  },
+  "imports": {
+    "#lib": "./src/lib/index.ts",
+    "#lib/*": "./src/lib/*"
+  },
+  "dependencies": {
+    "@enlace/api": "workspace:^"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
