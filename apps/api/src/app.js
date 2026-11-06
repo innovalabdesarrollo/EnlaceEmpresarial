@@ -59,3 +59,4 @@ app.use((err, _req, res, _next) => {
 });
 
 export { app };
+export default app;

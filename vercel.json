@@ -1,6 +1,27 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "pnpm install",
-  "buildCommand": "pnpm --filter @enlace/web build",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- ./apps/web ./apps/api ./pnpm-lock.yaml ./package.json ./vercel.json"
+  "services": {
+    "api": {
+      "root": "apps/api",
+      "framework": "express",
+      "entrypoint": "src/app.js",
+      "installCommand": "cd ../.. && pnpm install"
+    },
+    "web": {
+      "root": "apps/web",
+      "framework": "sveltekit-1",
+      "installCommand": "cd ../.. && pnpm install",
+      "buildCommand": "pnpm build"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": { "service": "api" }
+    },
+    {
+      "source": "/(.*)",
+      "destination": { "service": "web" }
+    }
+  ]
 }

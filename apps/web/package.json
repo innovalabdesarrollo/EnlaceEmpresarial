@@ -25,9 +25,6 @@
     "#lib": "./src/lib/index.ts",
     "#lib/*": "./src/lib/*"
   },
-  "dependencies": {
-    "@enlace/api": "workspace:^"
-  },
   "engines": {
     "node": ">=20"
   }

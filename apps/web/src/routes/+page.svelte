@@ -3,7 +3,10 @@
   import { goto } from '$app/navigation';
   import { user, hydrateUser } from '#lib/stores';
 
-  const apiUrl = import.meta.env.PUBLIC_API_URL || 'http://127.0.0.1:4710';
+  /** Mismo criterio que #lib/api: en Vercel mismo origen /api; local → :4710 */
+  const apiBase =
+    import.meta.env.PUBLIC_API_URL ??
+    (import.meta.env.DEV ? 'http://127.0.0.1:4710' : '');
 
   let status = $state<'loading' | 'ok' | 'error'>('loading');
   let detail = $state('');
@@ -14,7 +17,7 @@
     if ($user?.rol === 'contable') return goto('/contable');
 
     try {
-      const res = await fetch(`${apiUrl}/health`);
+      const res = await fetch(`${apiBase}/api/health`);
       const data = await res.json();
       if (res.ok && data.ok) {
         status = 'ok';
@@ -27,7 +30,9 @@
       }
     } catch {
       status = 'error';
-      detail = `No se pudo contactar ${apiUrl}. Arranca pnpm dev:api`;
+      detail = apiBase
+        ? `No se pudo contactar ${apiBase}. Arranca pnpm dev:api`
+        : 'No se pudo contactar /api/health';
     }
   });
 </script>

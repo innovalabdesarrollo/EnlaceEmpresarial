@@ -1,57 +1,61 @@
-# Publicar Enlace Empresarial en Vercel (monorepo → un solo proyecto)
+# Publicar Enlace Empresarial en Vercel (Services)
 
-Un dominio sirve **web (SvelteKit)** + **API (Express serverless)** en `/api/*`.
+Un proyecto Vercel con **dos servicios** en el mismo dominio:
+
+| Servicio | Root | Público |
+| --- | --- | --- |
+| `api` | `apps/api` (Express) | sí → `/api/*` |
+| `web` | `apps/web` (SvelteKit) | sí → resto de rutas |
+
+Configuración: `vercel.json` en la **raíz** del monorepo (modo `services`).
 
 ## 1. GitHub
 
 ```bash
-# Desde la raíz del monorepo (si aún no hay remoto)
-git init   # solo si hace falta
 git add .
-git commit -m "Prepare deploy Vercel monorepo"
-gh repo create EnlaceEmpresarial --private --source=. --remote=origin --push
-# o: git remote add origin git@github.com:TU_ORG/EnlaceEmpresarial.git && git push -u origin main
+git commit -m "Configure Vercel services (web + api)"
+git remote add origin git@github.com:TU_ORG/EnlaceEmpresarial.git   # si falta
+git push -u origin main
 ```
 
 ## 2. Importar en Vercel
 
-1. [vercel.com](https://vercel.com) → **Add New Project** → importa el repo de GitHub.
-2. **Root Directory:** `apps/web`  
-   (Framework: SvelteKit; el `installCommand` del `apps/web/vercel.json` instala el monorepo desde la raíz.)
-3. **Framework Preset:** SvelteKit.
+1. **Add New Project** → repo de GitHub.
+2. **Root Directory:** dejar la **raíz del repo** (donde está `vercel.json` con `services`).
+3. No uses Root Directory = `apps/web` con este modelo.
 
 ## 3. Variables de entorno (Production + Preview)
 
+Aplican al proyecto (compartidas entre servicios):
+
 | Variable | Valor |
 | --- | --- |
-| `MONGODB_URI` | URI Atlas con DB `EnlaceEmpresarial` |
-| `JWT_SECRET` | secreto fuerte (no el de desarrollo) |
+| `MONGODB_URI` | URI Atlas · DB `EnlaceEmpresarial` |
+| `JWT_SECRET` | secreto fuerte |
 | `CONFIDENCE_THRESHOLD` | `0.7` (opcional) |
-| `PUBLIC_API_URL` | **dejar vacío** (mismo origen `/api`) |
+| `PUBLIC_API_URL` | **vacío** (el navegador usa `/api` del mismo dominio) |
 
-No hace falta `PORT` ni `HOST` en Vercel.
+No definas bindings env (`API_URL`, etc.): el cliente habla por rewrite público.
 
-## 4. Atlas Network Access
+## 4. Atlas
 
-En MongoDB Atlas → Network Access → permite `0.0.0.0/0` (o las IPs de Vercel) para que las funciones serverless conecten.
+Network Access → `0.0.0.0/0` (o IPs de Vercel).
 
 ## 5. Seed (una vez)
-
-Con la misma `MONGODB_URI` en local:
 
 ```bash
 pnpm seed
 ```
 
-## 6. Local vs producción
+## 6. Local
 
-| | Local | Vercel |
-| --- | --- | --- |
-| Web | `pnpm dev:web` → `:5710` | dominio `*.vercel.app` |
-| API | `pnpm dev:api` → `:4710` | `/api/*` en el mismo dominio |
-| `PUBLIC_API_URL` | `http://127.0.0.1:4710` | vacío |
+| | Comando |
+| --- | --- |
+| Todo con Vercel | `vercel dev` (inyecta servicios) |
+| Clásico | `pnpm dev:api` + `pnpm dev:web` · `PUBLIC_API_URL=http://127.0.0.1:4710` |
 
 ## Notas
 
-- Uploads en Vercel van a `/tmp` (efímeros). Para producción real después: S3 u otro storage.
+- Uploads en Vercel → `/tmp` (efímeros).
+- No hay **service bindings**: el browser llama `/api/*` por rewrite público; no hay llamadas server-to-server web→api hoy.
 - Sin SMTP / Google (fuera del MVP).
