@@ -1,12 +1,19 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { api, saveSession } from '#lib/api';
-  import { user } from '#lib/stores';
+  import { user, hydrateUser } from '#lib/stores';
 
   let email = $state('cliente@demo.local');
   let password = $state('cliente123');
   let error = $state('');
   let loading = $state(false);
+
+  onMount(() => {
+    hydrateUser();
+    if ($user?.rol === 'cliente') goto('/cliente');
+    else if ($user?.rol === 'contable') goto('/contable');
+  });
 
   async function entrar() {
     error = '';
