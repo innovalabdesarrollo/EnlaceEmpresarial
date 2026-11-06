@@ -7,6 +7,7 @@ import authRoutes from './routes/auth.js';
 import documentosRoutes from './routes/documentos.js';
 import notificacionesRoutes from './routes/notificaciones.js';
 import contableRoutes from './routes/contable.js';
+import confirmacionesRoutes from './routes/confirmaciones.js';
 
 fs.mkdirSync(config.uploadDir, { recursive: true });
 
@@ -52,6 +53,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/documentos', documentosRoutes);
 app.use('/api/notificaciones', notificacionesRoutes);
 app.use('/api/contable', contableRoutes);
+app.use('/api/confirmaciones', confirmacionesRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

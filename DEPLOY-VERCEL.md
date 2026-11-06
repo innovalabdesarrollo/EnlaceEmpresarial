@@ -34,6 +34,9 @@ Aplican al proyecto (compartidas entre servicios):
 | `JWT_SECRET` | secreto fuerte |
 | `CONFIDENCE_THRESHOLD` | `0.7` (opcional) |
 | `PUBLIC_API_URL` | **vacío** (el navegador usa `/api` del mismo dominio) |
+| `PUBLIC_APP_URL` | URL canónica del deploy (enlaces confirmar recepción) |
+| `SMTP_HOST` / `PORT` / `USER` / `PASS` / `FROM` | Correo real (si faltan → envío simulado) |
+| `SHAREPOINT_*` | Opcional; ver `SHAREPOINT.md` |
 
 No definas bindings env (`API_URL`, etc.): el cliente habla por rewrite público.
 

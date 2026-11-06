@@ -10,22 +10,14 @@
     nombre: '',
     criterio: '',
     carpetaDestino: 'General',
+    asuntoPlantilla: '[RFC]_',
+    departamento: 'PERSONAS FISICAS / ACT EMPRESARIAL',
+    periodicidad: 'MENSUAL',
     descripcion: '',
     prioridad: '100',
     peso: '0.1',
   });
-  let edits: Record<
-    string,
-    {
-      nombre: string;
-      criterio: string;
-      carpetaDestino: string;
-      descripcion: string;
-      prioridad: string;
-      peso: string;
-      activa: boolean;
-    }
-  > = $state({});
+  let edits: Record<string, any> = $state({});
   let error = $state('');
   let msg = $state('');
   let loading = $state(true);
@@ -39,12 +31,15 @@
     ]);
     reglas = data.reglas;
     carpetas = carps.carpetas;
-    const next: typeof edits = {};
+    const next: Record<string, any> = {};
     for (const r of reglas) {
       next[r._id] = {
         nombre: r.nombre || '',
         criterio: r.criterio || '',
         carpetaDestino: r.carpetaDestino || 'General',
+        asuntoPlantilla: r.asuntoPlantilla || '',
+        departamento: r.departamento || '',
+        periodicidad: r.periodicidad || '',
         descripcion: r.descripcion || '',
         prioridad: String(r.prioridad ?? 100),
         peso: String(r.peso ?? 0.1),
@@ -84,7 +79,10 @@
       form = {
         nombre: '',
         criterio: '',
-        carpetaDestino: 'General',
+        carpetaDestino: carpetas[0]?.nombre || 'General',
+        asuntoPlantilla: '[RFC]_',
+        departamento: 'PERSONAS FISICAS / ACT EMPRESARIAL',
+        periodicidad: 'MENSUAL',
         descripcion: '',
         prioridad: '100',
         peso: '0.1',
@@ -119,13 +117,27 @@
       busyId = '';
     }
   }
+
+  async function eliminar(id: string) {
+    error = '';
+    msg = '';
+    busyId = id;
+    try {
+      await api(`/api/contable/reglas/${id}`, { method: 'DELETE' });
+      msg = 'Regla eliminada';
+      await load();
+    } catch (err: any) {
+      error = err.message;
+    } finally {
+      busyId = '';
+    }
+  }
 </script>
 
 <div class="mb-5">
-  <h1 class="mb-1 text-2xl font-bold">Reglas de clasificación</h1>
+  <h1 class="mb-1 text-2xl font-bold">Reglas (clasificación y correos)</h1>
   <p class="text-sm text-[var(--muted)]">
-    Patrones sobre el nombre de archivo → carpeta (sin IA; umbral en
-    <code>CONFIDENCE_THRESHOLD</code>).
+    Palabras clave → carpeta + asunto <code>[RFC]_…</code> (estructura tipo Personas Físicas).
   </p>
 </div>
 
@@ -139,13 +151,16 @@
     <p class="text-sm font-medium">Nueva regla</p>
     <div class="grid gap-2 sm:grid-cols-2">
       <input class="input" bind:value={form.nombre} placeholder="Nombre" />
-      <input class="input" bind:value={form.criterio} placeholder="Criterio (regex o texto)" />
+      <input class="input" bind:value={form.criterio} placeholder="Palabra clave / regex" />
       <select class="input" bind:value={form.carpetaDestino}>
         {#each carpetas as c}
           <option value={c.nombre}>{c.nombre}</option>
         {/each}
       </select>
-      <input class="input" bind:value={form.descripcion} placeholder="Descripción" />
+      <input class="input" bind:value={form.asuntoPlantilla} placeholder="Asunto [RFC]_CSF" />
+      <input class="input" bind:value={form.departamento} placeholder="Departamento" />
+      <input class="input" bind:value={form.periodicidad} placeholder="Periodicidad" />
+      <input class="input sm:col-span-2" bind:value={form.descripcion} placeholder="Descripción" />
       <input class="input" bind:value={form.prioridad} placeholder="Prioridad (menor = primero)" />
       <input class="input" bind:value={form.peso} placeholder="Peso confianza" />
     </div>
@@ -162,8 +177,14 @@
             {#each carpetas as c}
               <option value={c.nombre}>{c.nombre}</option>
             {/each}
+            {#if !carpetas.some((c) => c.nombre === edits[r._id].carpetaDestino)}
+              <option value={edits[r._id].carpetaDestino}>{edits[r._id].carpetaDestino}</option>
+            {/if}
           </select>
-          <input class="input" bind:value={edits[r._id].descripcion} />
+          <input class="input" bind:value={edits[r._id].asuntoPlantilla} placeholder="Asunto" />
+          <input class="input" bind:value={edits[r._id].departamento} placeholder="Departamento" />
+          <input class="input" bind:value={edits[r._id].periodicidad} placeholder="Periodicidad" />
+          <input class="input sm:col-span-2" bind:value={edits[r._id].descripcion} />
           <input class="input" bind:value={edits[r._id].prioridad} />
           <input class="input" bind:value={edits[r._id].peso} />
         </div>
@@ -171,14 +192,24 @@
           <input type="checkbox" bind:checked={edits[r._id].activa} />
           Activa
         </label>
-        <button
-          class="btn btn-ghost"
-          type="button"
-          disabled={busyId === r._id}
-          onclick={() => guardar(r._id)}
-        >
-          Guardar
-        </button>
+        <div class="flex flex-wrap gap-2">
+          <button
+            class="btn btn-ghost"
+            type="button"
+            disabled={busyId === r._id}
+            onclick={() => guardar(r._id)}
+          >
+            Guardar
+          </button>
+          <button
+            class="btn btn-ghost"
+            type="button"
+            disabled={busyId === r._id}
+            onclick={() => eliminar(r._id)}
+          >
+            Eliminar
+          </button>
+        </div>
       </div>
     {:else}
       <p class="text-sm text-[var(--muted)]">Sin reglas. Ejecuta el seed o crea una.</p>

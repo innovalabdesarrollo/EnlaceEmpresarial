@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { api, downloadFile, estadoBadge, labelEstado } from '#lib/api';
+  import { api, downloadAuthed, downloadFile, estadoBadge, labelEstado } from '#lib/api';
   import { user, hydrateUser } from '#lib/stores';
 
   let cola: any[] = $state([]);
@@ -12,6 +12,7 @@
   let msg = $state('');
   let loading = $state(true);
   let busyId = $state('');
+  let mailMode = $state('simulado');
 
   function enCola(estado: string) {
     return ['preparado', 'bloqueado', 'pendiente'].includes(estado);
@@ -19,12 +20,14 @@
 
   async function load() {
     const qs = filtroEstado ? `?estado=${encodeURIComponent(filtroEstado)}` : '';
-    const [c, cl] = await Promise.all([
+    const [c, cl, mail] = await Promise.all([
       api<{ cola: any[] }>(`/api/contable/cola-envio${qs}`),
       api<{ clientes: any[] }>('/api/contable/clientes'),
+      api<{ mode: string }>('/api/contable/mail-status'),
     ]);
     cola = c.cola;
     clientes = cl.clientes;
+    mailMode = mail.mode || 'simulado';
     const next: typeof edits = {};
     for (const row of cola) {
       next[row.envio._id] = {
@@ -100,13 +103,26 @@
         { method: 'POST' }
       );
       msg = res.ok
-        ? `Marcado enviado (simulado) → ${res.envio.destinatarioEmail}`
+        ? `Enviado (${(res as any).modo || mailMode}) → ${res.envio.destinatarioEmail}`
         : `Falló al enviar: ${res.envio.detalleError}`;
       await load();
     } catch (err: any) {
       error = err.message;
     } finally {
       busyId = '';
+    }
+  }
+
+  async function descargarReporte() {
+    error = '';
+    try {
+      await downloadAuthed(
+        '/api/contable/reporte-envios.csv',
+        `reporte-envios-${new Date().toISOString().slice(0, 10)}.csv`
+      );
+      msg = 'Reporte descargado (abre en Excel)';
+    } catch (err: any) {
+      error = err.message;
     }
   }
 
@@ -152,14 +168,16 @@
 <div class="mb-5">
   <h1 class="mb-1 text-2xl font-bold">Estado de envíos</h1>
   <p class="text-sm text-[var(--muted)]">
-    Valida, marca enviado (simulado, sin SMTP) o reintenta fallidos.
+    Valida y envía correo (SMTP si está configurado; si no, simulado). Incluye confirmación de
+    recepción. Modo actual:
+    <span class="badge {mailMode === 'smtp' ? 'badge-ok' : 'badge-warn'}">{mailMode}</span>
   </p>
 </div>
 
 {#if loading}
   <p class="text-sm text-[var(--muted)]">Cargando…</p>
 {:else}
-  <div class="mb-4">
+  <div class="mb-4 flex flex-wrap items-center gap-3">
     <select class="input max-w-xs" bind:value={filtroEstado} onchange={() => load()}>
       <option value="">Todos los estados</option>
       <option value="preparado">preparado</option>
@@ -168,6 +186,9 @@
       <option value="fallido">fallido</option>
       <option value="bloqueado">bloqueado</option>
     </select>
+    <button class="btn btn-ghost" type="button" onclick={descargarReporte}>
+      Reporte Excel (CSV)
+    </button>
   </div>
 
   {#if msg}<p class="mb-3 text-sm text-[var(--ok)]">{msg}</p>{/if}
@@ -186,12 +207,14 @@
               {e.destinatarioEmail || 'sin correo'}
             </p>
             <p class="mt-1 text-xs text-[var(--muted)]">
-              Prep:
+              Carpeta: {e.carpetaDepositada || d?.carpetaDestino || '—'} · Prep:
               {e.fechaProgramada
                 ? new Date(e.fechaProgramada).toLocaleString('es-MX')
                 : '—'}
               · Envío:
               {e.fechaEnvio ? new Date(e.fechaEnvio).toLocaleString('es-MX') : '—'}
+              · Confirmó: {e.confirmadoRecepcion ? 'Sí' : 'No'}
+              {#if e.modoEnvio} · {e.modoEnvio}{/if}
             </p>
             {#if e.detalleError}
               <p class="mt-1 text-sm text-[var(--danger)]">{e.detalleError}</p>
@@ -255,7 +278,7 @@
               disabled={busyId === e._id}
               onclick={() => marcarEnviado(e._id)}
             >
-              Marcar enviado
+              {mailMode === 'smtp' ? 'Enviar correo' : 'Enviar (simulado)'}
             </button>
             <button
               class="btn btn-ghost"

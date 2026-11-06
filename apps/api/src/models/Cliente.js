@@ -5,10 +5,20 @@ const ClienteSchema = new mongoose.Schema(
   {
     _id: { type: String, default: uuid },
     razonSocial: { type: String, required: true },
-    identificadorFiscal: { type: String, default: '' },
+    /** RFC u otro identificador fiscal (usado en asuntos y carpetas SharePoint). */
+    identificadorFiscal: { type: String, default: '', index: true },
     emailNotificaciones: { type: String, required: true },
     telefono: { type: String, default: '' },
-    estado: { type: String, default: 'activo' },
+    /** Ej. PERSONAS FISICAS / ACT EMPRESARIAL */
+    departamento: { type: String, default: '' },
+    /** Ruta relativa en SharePoint, ej. PERSONAS FISICAS/ACT EMPRESARIAL/RFC_NOMBRE */
+    sharePointPath: { type: String, default: '' },
+    estado: {
+      type: String,
+      enum: ['activo', 'baja'],
+      default: 'activo',
+      index: true,
+    },
   },
   { timestamps: true }
 );

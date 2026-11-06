@@ -15,7 +15,14 @@ const DEMO = {
   },
 };
 
-async function upsertCliente({ razonSocial, identificadorFiscal, emailNotificaciones, telefono }) {
+async function upsertCliente({
+  razonSocial,
+  identificadorFiscal,
+  emailNotificaciones,
+  telefono,
+  departamento = '',
+  sharePointPath = '',
+}) {
   return Cliente.findOneAndUpdate(
     { identificadorFiscal },
     {
@@ -23,6 +30,8 @@ async function upsertCliente({ razonSocial, identificadorFiscal, emailNotificaci
       identificadorFiscal,
       emailNotificaciones,
       telefono,
+      departamento,
+      sharePointPath,
       estado: 'activo',
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -53,6 +62,8 @@ async function seed() {
     identificadorFiscal: 'AAA010101AAA',
     emailNotificaciones: DEMO.cliente.email,
     telefono: '5551000001',
+    departamento: 'PERSONAS FISICAS / ACT EMPRESARIAL',
+    sharePointPath: 'PERSONAS FISICAS/ACT EMPRESARIAL/AAA010101AAA_ACME COMERCIAL',
   });
 
   await upsertCliente({
@@ -60,6 +71,8 @@ async function seed() {
     identificadorFiscal: 'BBB020202BBB',
     emailNotificaciones: 'beta@demo.local',
     telefono: '5551000002',
+    departamento: 'PERSONAS FISICAS / ACT EMPRESARIAL',
+    sharePointPath: 'PERSONAS FISICAS/ACT EMPRESARIAL/BBB020202BBB_BETA LOGISTICA',
   });
 
   await upsertCuenta({
@@ -78,12 +91,16 @@ async function seed() {
     clienteId: null,
   });
 
+  const dept = 'PERSONAS FISICAS / ACT EMPRESARIAL';
   const reglasBase = [
     {
       nombre: 'Facturas por nombre',
       descripcion: 'Detecta archivos con “factura” en el nombre',
       criterio: 'factura',
       carpetaDestino: 'Facturas',
+      asuntoPlantilla: '[RFC]_FACTURA',
+      departamento: dept,
+      periodicidad: 'MENSUAL',
       prioridad: 10,
       peso: 0.05,
     },
@@ -91,9 +108,56 @@ async function seed() {
       nombre: 'Estados de cuenta / bancos',
       descripcion: 'Detecta estados de cuenta o bancos',
       criterio: 'estado.?cuenta|banco',
-      carpetaDestino: 'Bancos',
+      carpetaDestino: '02 BANCOS',
+      asuntoPlantilla: '[RFC]_ESTADO DE CUENTA',
+      departamento: dept,
+      periodicidad: 'MENSUAL',
       prioridad: 20,
       peso: 0.05,
+    },
+    {
+      nombre: 'CSF — Constancias situación fiscal',
+      descripcion: 'Palabra clave CSF → 01 GENERALES',
+      criterio: 'CSF',
+      carpetaDestino: '01 GENERALES',
+      asuntoPlantilla: '[RFC]_CSF',
+      departamento: dept,
+      periodicidad: 'MENSUAL',
+      prioridad: 5,
+      peso: 0.12,
+    },
+    {
+      nombre: 'Opinión de cumplimiento SAT',
+      descripcion: 'Palabra clave POSITIVA',
+      criterio: 'POSITIVA',
+      carpetaDestino: '01 GENERALES',
+      asuntoPlantilla: '[RFC]_OPINION DE CUMPLIMIENTO SAT',
+      departamento: dept,
+      periodicidad: 'MENSUAL',
+      prioridad: 6,
+      peso: 0.12,
+    },
+    {
+      nombre: 'Declaración impuestos mensuales',
+      descripcion: 'ACUSE ISR SALARIOS o ACUSE + DECLARACION',
+      criterio: 'ACUSE\\s*ISR\\s*SALARIOS|ACUSE.*DECLARACION|DECLARACION.*ACUSE',
+      carpetaDestino: '03 IMPUESTOS',
+      asuntoPlantilla: '[RFC]_DECLARACION IMPUESTOS MENSUALES SAT',
+      departamento: dept,
+      periodicidad: 'MENSUAL',
+      prioridad: 7,
+      peso: 0.12,
+    },
+    {
+      nombre: 'Declaración anual',
+      descripcion: 'Palabra clave ANUAL',
+      criterio: 'ANUAL',
+      carpetaDestino: '06 DECLARACION ANUAL',
+      asuntoPlantilla: '[RFC]_DECLARACION ANUAL SAT',
+      departamento: dept,
+      periodicidad: 'ANUAL',
+      prioridad: 8,
+      peso: 0.12,
     },
   ];
 
@@ -110,6 +174,41 @@ async function seed() {
     { nombre: 'Facturas', ruta: '/Facturas', tipoClasificacion: 'facturas' },
     { nombre: 'Bancos', ruta: '/Bancos', tipoClasificacion: 'bancos' },
     { nombre: 'Sin clasificar', ruta: '/Sin clasificar', tipoClasificacion: 'pendiente' },
+    {
+      nombre: '01 GENERALES',
+      ruta: '/PERSONAS FISICAS/ACT EMPRESARIAL/01 GENERALES',
+      tipoClasificacion: 'generales',
+    },
+    {
+      nombre: '02 BANCOS',
+      ruta: '/PERSONAS FISICAS/ACT EMPRESARIAL/02 BANCOS',
+      tipoClasificacion: 'bancos',
+    },
+    {
+      nombre: '03 IMPUESTOS',
+      ruta: '/PERSONAS FISICAS/ACT EMPRESARIAL/03 IMPUESTOS',
+      tipoClasificacion: 'impuestos',
+    },
+    {
+      nombre: '04 INFORMATIVAS',
+      ruta: '/PERSONAS FISICAS/ACT EMPRESARIAL/04 INFORMATIVAS',
+      tipoClasificacion: 'informativas',
+    },
+    {
+      nombre: '05 XML',
+      ruta: '/PERSONAS FISICAS/ACT EMPRESARIAL/05 XML',
+      tipoClasificacion: 'xml',
+    },
+    {
+      nombre: '06 DECLARACION ANUAL',
+      ruta: '/PERSONAS FISICAS/ACT EMPRESARIAL/06 DECLARACION ANUAL',
+      tipoClasificacion: 'anual',
+    },
+    {
+      nombre: '07 CEDULARES',
+      ruta: '/PERSONAS FISICAS/ACT EMPRESARIAL/07 CEDULARES',
+      tipoClasificacion: 'cedulares',
+    },
   ];
   for (const c of carpetasBase) {
     await Carpeta.findOneAndUpdate(

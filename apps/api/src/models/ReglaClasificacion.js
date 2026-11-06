@@ -9,6 +9,10 @@ const ReglaClasificacionSchema = new mongoose.Schema(
     /** Patrón (regex o texto) aplicado al nombre de archivo. */
     criterio: { type: String, required: true },
     carpetaDestino: { type: String, required: true },
+    /** Plantilla de asunto: usa [RFC] o {RFC}. */
+    asuntoPlantilla: { type: String, default: '' },
+    departamento: { type: String, default: '' },
+    periodicidad: { type: String, default: '' },
     clienteId: { type: String, default: null, index: true },
     peso: { type: Number, default: 0.1 },
     prioridad: { type: Number, default: 100 },

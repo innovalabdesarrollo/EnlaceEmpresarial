@@ -91,4 +91,23 @@ export async function downloadFile(docId: string, name: string) {
   URL.revokeObjectURL(url);
 }
 
+/** Descarga CSV/Excel autenticada (p. ej. reporte de envíos). */
+export async function downloadAuthed(path: string, name: string) {
+  const t = token();
+  const res = await fetch(`${API}${path}`, {
+    headers: t ? { Authorization: `Bearer ${t}` } : {},
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { error?: string }).error || `Error ${res.status}`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { v4 as uuid } from 'uuid';
+import bcrypt from 'bcryptjs';
 import { requireAuth, requireRol } from '../middleware/auth.js';
 import { config } from '../config.js';
 import {
@@ -19,16 +21,149 @@ import {
 } from '../models/index.js';
 import { registrarEvento } from '../services/historial.js';
 import { clasificarDocumento } from '../services/clasificar.js';
-
-
-
+import { resolverAsuntoEnvio } from '../services/asunto.js';
+import { mailStatus, sendDocumentoEmail, smtpConfigured } from '../services/mail.js';
+import { sharepointStatus, syncSharepointStub } from '../services/sharepoint.js';
 
 const router = Router();
 router.use(requireAuth, requireRol('contable'));
 
-router.get('/clientes', async (_req, res) => {
-  const clientes = await Cliente.find().sort({ razonSocial: 1 }).lean();
+function emailOk(v) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
+}
+
+router.get('/clientes', async (req, res) => {
+  const filter = {};
+  if (req.query.estado) filter.estado = String(req.query.estado);
+  else if (req.query.incluirBaja !== '1') filter.estado = { $ne: 'baja' };
+  const clientes = await Cliente.find(filter).sort({ razonSocial: 1 }).lean();
   res.json({ clientes });
+});
+
+/**
+ * Alta de cliente. body opcional crearCuenta + password → cuenta rol cliente.
+ */
+router.post('/clientes', async (req, res) => {
+  const {
+    razonSocial,
+    identificadorFiscal = '',
+    emailNotificaciones,
+    telefono = '',
+    departamento = '',
+    sharePointPath = '',
+    crearCuenta = false,
+    password = '',
+    nombreCompleto = '',
+  } = req.body || {};
+
+  if (!String(razonSocial || '').trim()) {
+    return res.status(400).json({ error: 'razonSocial requerida' });
+  }
+  if (!emailOk(emailNotificaciones)) {
+    return res.status(400).json({ error: 'emailNotificaciones inválido' });
+  }
+
+  const emailNorm = String(emailNotificaciones).trim().toLowerCase();
+  const rfc = String(identificadorFiscal || '').trim().toUpperCase();
+  if (rfc) {
+    const dup = await Cliente.findOne({ identificadorFiscal: rfc, estado: { $ne: 'baja' } });
+    if (dup) return res.status(409).json({ error: 'Ya existe un cliente con ese RFC' });
+  }
+
+  if (crearCuenta) {
+    const pass = String(password || '').trim();
+    if (pass.length < 6) {
+      return res.status(400).json({ error: 'password mínimo 6 caracteres para crear cuenta' });
+    }
+    const existe = await Cuenta.findOne({ email: emailNorm });
+    if (existe) {
+      return res.status(409).json({ error: 'Ese email ya tiene cuenta de acceso' });
+    }
+  }
+
+  const cliente = await Cliente.create({
+    razonSocial: String(razonSocial).trim(),
+    identificadorFiscal: rfc,
+    emailNotificaciones: emailNorm,
+    telefono: String(telefono || '').trim(),
+    departamento: String(departamento || '').trim(),
+    sharePointPath: String(sharePointPath || '').trim(),
+    estado: 'activo',
+  });
+
+  let cuenta = null;
+  if (crearCuenta) {
+    cuenta = await Cuenta.create({
+      email: emailNorm,
+      nombreCompleto: String(nombreCompleto || cliente.razonSocial).trim(),
+      passwordHash: await bcrypt.hash(String(password).trim(), 10),
+      rol: 'cliente',
+      clienteId: cliente._id,
+      estado: 'activa',
+    });
+  }
+
+  res.status(201).json({ ok: true, cliente, cuenta: cuenta ? { id: cuenta._id, email: cuenta.email } : null });
+});
+
+router.patch('/clientes/:id', async (req, res) => {
+  const cliente = await Cliente.findById(req.params.id);
+  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+  const fields = [
+    'razonSocial',
+    'identificadorFiscal',
+    'emailNotificaciones',
+    'telefono',
+    'departamento',
+    'sharePointPath',
+    'estado',
+  ];
+  for (const f of fields) {
+    if (req.body?.[f] === undefined) continue;
+    if (f === 'emailNotificaciones') {
+      if (!emailOk(req.body.emailNotificaciones)) {
+        return res.status(400).json({ error: 'emailNotificaciones inválido' });
+      }
+      cliente.emailNotificaciones = String(req.body.emailNotificaciones).trim().toLowerCase();
+    } else if (f === 'identificadorFiscal') {
+      cliente.identificadorFiscal = String(req.body.identificadorFiscal || '')
+        .trim()
+        .toUpperCase();
+    } else if (f === 'estado') {
+      if (!['activo', 'baja'].includes(req.body.estado)) {
+        return res.status(400).json({ error: 'estado debe ser activo o baja' });
+      }
+      cliente.estado = req.body.estado;
+    } else {
+      cliente[f] = String(req.body[f] || '').trim();
+    }
+  }
+  await cliente.save();
+  res.json({ ok: true, cliente });
+});
+
+/** Baja lógica (no borra historial). */
+router.delete('/clientes/:id', async (req, res) => {
+  const cliente = await Cliente.findById(req.params.id);
+  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+  cliente.estado = 'baja';
+  await cliente.save();
+  await Cuenta.updateMany({ clienteId: cliente._id }, { estado: 'inactiva' });
+  res.json({ ok: true, cliente });
+});
+
+router.get('/mail-status', (_req, res) => {
+  res.json(mailStatus());
+});
+
+router.get('/sharepoint/status', (_req, res) => {
+  res.json(sharepointStatus());
+});
+
+router.post('/sharepoint/sync', async (_req, res) => {
+  const result = await syncSharepointStub();
+  res.json(result);
 });
 
 /** Catálogo de carpetas documentales. */
@@ -222,19 +357,23 @@ router.post('/listo-envio', async (req, res) => {
 
     const cliente = doc.clienteId ? await Cliente.findById(doc.clienteId) : null;
     const email = cliente?.emailNotificaciones || '';
-    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     const filePath = path.resolve(
       config.uploadDir,
       path.basename(doc.rutaAlmacenamiento || '')
     );
     const fileOk = Boolean(doc.rutaAlmacenamiento) && fs.existsSync(filePath);
+    const resolved = await resolverAsuntoEnvio({
+      nombreArchivo: doc.nombreArchivo,
+      cliente,
+      carpetaDoc: doc.carpetaDestino,
+    });
 
     let estado = 'preparado';
     let detalleError = '';
-    if (!cliente) {
+    if (!cliente || cliente.estado === 'baja') {
       estado = 'bloqueado';
-      detalleError = 'Sin cliente destinatario';
-    } else if (!emailOk) {
+      detalleError = 'Sin cliente destinatario activo';
+    } else if (!emailOk(email)) {
       estado = 'bloqueado';
       detalleError = 'Correo inválido o faltante';
     } else if (!fileOk) {
@@ -248,7 +387,9 @@ router.post('/listo-envio', async (req, res) => {
     const envio = await Envio.create({
       documentoId: doc._id,
       destinatarioEmail: email,
-      asunto: `Documento procesado: ${doc.nombreArchivo}`,
+      asunto: resolved.asunto,
+      carpetaDepositada: resolved.carpeta,
+      tokenConfirmacion: uuid(),
       estado,
       fechaProgramada: new Date(),
       detalleError,
@@ -272,7 +413,6 @@ router.post('/listo-envio', async (req, res) => {
 
 function validarDatosEnvio(doc, cliente, emailOverride) {
   const email = (emailOverride ?? cliente?.emailNotificaciones ?? '').trim();
-  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const filePath = path.resolve(
     config.uploadDir,
     path.basename(doc.rutaAlmacenamiento || '')
@@ -281,10 +421,10 @@ function validarDatosEnvio(doc, cliente, emailOverride) {
 
   let estado = 'preparado';
   let detalleError = '';
-  if (!cliente) {
+  if (!cliente || cliente.estado === 'baja') {
     estado = 'bloqueado';
-    detalleError = 'Sin cliente destinatario';
-  } else if (!emailOk) {
+    detalleError = 'Sin cliente destinatario activo';
+  } else if (!emailOk(email)) {
     estado = 'bloqueado';
     detalleError = 'Correo inválido o faltante';
   } else if (!fileOk) {
@@ -411,7 +551,7 @@ router.post('/cola-envio/:envioId/retirar', async (req, res) => {
 });
 
 /**
- * Marca envío como enviado (simulado, sin SMTP).
+ * Envía correo real (SMTP) o marca simulado si no hay SMTP.
  * Solo desde preparado o pendiente; revalida datos antes.
  */
 router.post('/cola-envio/:envioId/marcar-enviado', async (req, res) => {
@@ -449,7 +589,59 @@ router.post('/cola-envio/:envioId/marcar-enviado', async (req, res) => {
     return res.json({ ok: false, envio, documento: doc });
   }
 
+  if (!envio.tokenConfirmacion) envio.tokenConfirmacion = uuid();
+  if (!envio.carpetaDepositada) {
+    const resolved = await resolverAsuntoEnvio({
+      nombreArchivo: doc.nombreArchivo,
+      cliente,
+      carpetaDoc: doc.carpetaDestino,
+    });
+    envio.carpetaDepositada = resolved.carpeta;
+    if (!envio.asunto) envio.asunto = resolved.asunto;
+  }
+
+  const confirmUrl = `${config.appUrl}/confirmar/${envio.tokenConfirmacion}`;
+  let modo = 'simulado';
+  let mailDetail = 'Envío simulado (SMTP no configurado)';
+
+  if (smtpConfigured()) {
+    try {
+      const sent = await sendDocumentoEmail({
+        to: email || envio.destinatarioEmail,
+        asunto: envio.asunto,
+        nombreArchivo: doc.nombreArchivo,
+        carpeta: envio.carpetaDepositada || doc.carpetaDestino,
+        confirmUrl,
+        clienteNombre: cliente?.razonSocial,
+      });
+      if (sent.ok) {
+        modo = 'smtp';
+        mailDetail = `Correo SMTP enviado (${sent.messageId || 'ok'})`;
+      } else {
+        envio.estado = 'fallido';
+        envio.detalleError = sent.error || 'No se pudo enviar correo';
+        await envio.save();
+        return res.json({ ok: false, envio, documento: doc });
+      }
+    } catch (err) {
+      envio.estado = 'fallido';
+      envio.detalleError = err.message || 'Error SMTP';
+      await envio.save();
+      await registrarEvento({
+        documentoId: doc._id,
+        nombreArchivo: doc.nombreArchivo,
+        tipoEvento: 'envio',
+        estado: 'fallido',
+        detalle: envio.detalleError,
+        actor: req.user.email,
+        destinatarioId: doc.clienteId,
+      });
+      return res.json({ ok: false, envio, documento: doc });
+    }
+  }
+
   envio.estado = 'enviado';
+  envio.modoEnvio = modo;
   envio.destinatarioEmail = email || envio.destinatarioEmail;
   envio.fechaEnvio = new Date();
   envio.detalleError = '';
@@ -471,7 +663,7 @@ router.post('/cola-envio/:envioId/marcar-enviado', async (req, res) => {
       documentId: doc._id,
       notificationType: 'envio',
       title: 'Documento enviado',
-      message: `${doc.nombreArchivo} marcado como enviado a ${envio.destinatarioEmail} (simulado, sin SMTP).`,
+      message: `${doc.nombreArchivo} enviado a ${envio.destinatarioEmail} (${modo}). Confirmar: ${confirmUrl}`,
       recipientEmail,
       isRead: false,
       status: 'entregada',
@@ -483,12 +675,86 @@ router.post('/cola-envio/:envioId/marcar-enviado', async (req, res) => {
     nombreArchivo: doc.nombreArchivo,
     tipoEvento: 'envio',
     estado: 'enviado',
-    detalle: `Enviado simulado a ${envio.destinatarioEmail}`,
+    detalle: `${mailDetail} → ${envio.destinatarioEmail}`,
     actor: req.user.email,
     destinatarioId: doc.clienteId,
   });
 
-  res.json({ ok: true, envio, documento: doc });
+  res.json({ ok: true, envio, documento: doc, modo, confirmUrl });
+});
+
+/** Reporte CSV (Excel) de correos enviados. */
+router.get('/reporte-envios.csv', async (req, res) => {
+  const filter = { estado: 'enviado' };
+  if (req.query.desde || req.query.hasta) {
+    filter.fechaEnvio = {};
+    if (req.query.desde) filter.fechaEnvio.$gte = new Date(String(req.query.desde));
+    if (req.query.hasta) filter.fechaEnvio.$lte = new Date(String(req.query.hasta));
+  }
+
+  const envios = await Envio.find(filter).sort({ fechaEnvio: -1 }).limit(2000).lean();
+  const docIds = [...new Set(envios.map((e) => e.documentoId))];
+  const docs = await Documento.find({ _id: { $in: docIds } }).lean();
+  const dMap = Object.fromEntries(docs.map((d) => [d._id, d]));
+  const clientes = await Cliente.find().lean();
+  const cMap = Object.fromEntries(clientes.map((c) => [c._id, c]));
+
+  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const rows = [
+    [
+      'Fecha',
+      'Hora',
+      'Cliente',
+      'RFC',
+      'Archivo',
+      'Carpeta',
+      'Destinatario',
+      'Asunto',
+      'Modo',
+      'Confirmó recepción',
+      'Fecha confirmación',
+    ].join(','),
+  ];
+
+  for (const e of envios) {
+    const doc = dMap[e.documentoId];
+    const cli = doc?.clienteId ? cMap[doc.clienteId] : null;
+    const fe = e.fechaEnvio ? new Date(e.fechaEnvio) : null;
+    const fecha = fe
+      ? fe.toLocaleDateString('es-MX', { timeZone: 'America/Mexico_City' })
+      : '';
+    const hora = fe
+      ? fe.toLocaleTimeString('es-MX', { timeZone: 'America/Mexico_City' })
+      : '';
+    const fc = e.fechaConfirmacion
+      ? new Date(e.fechaConfirmacion).toLocaleString('es-MX', {
+          timeZone: 'America/Mexico_City',
+        })
+      : '';
+    rows.push(
+      [
+        esc(fecha),
+        esc(hora),
+        esc(cli?.razonSocial || ''),
+        esc(cli?.identificadorFiscal || ''),
+        esc(doc?.nombreArchivo || ''),
+        esc(e.carpetaDepositada || doc?.carpetaDestino || ''),
+        esc(e.destinatarioEmail),
+        esc(e.asunto),
+        esc(e.modoEnvio || 'simulado'),
+        esc(e.confirmadoRecepcion ? 'Sí' : 'No'),
+        esc(fc),
+      ].join(',')
+    );
+  }
+
+  const bom = '\uFEFF';
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="reporte-envios-${new Date().toISOString().slice(0, 10)}.csv"`
+  );
+  res.send(bom + rows.join('\n'));
 });
 
 /** Registra fallo de envío (sin SMTP) para trazabilidad / reintento. */
@@ -718,7 +984,7 @@ router.get('/reglas', async (_req, res) => {
 });
 
 /**
- * body: { nombre, criterio, carpetaDestino, descripcion?, peso?, prioridad?, activa?, clienteId? }
+ * body: { nombre, criterio, carpetaDestino, asuntoPlantilla?, departamento?, periodicidad?, … }
  */
 router.post('/reglas', async (req, res) => {
   const {
@@ -726,6 +992,9 @@ router.post('/reglas', async (req, res) => {
     criterio,
     carpetaDestino,
     descripcion = '',
+    asuntoPlantilla = '',
+    departamento = '',
+    periodicidad = '',
     peso = 0.1,
     prioridad = 100,
     activa = true,
@@ -751,6 +1020,9 @@ router.post('/reglas', async (req, res) => {
     nombre: nombre.trim(),
     criterio: criterio.trim(),
     carpetaDestino: carpetaDestino.trim(),
+    asuntoPlantilla: String(asuntoPlantilla || '').trim(),
+    departamento: String(departamento || '').trim(),
+    periodicidad: String(periodicidad || '').trim(),
     descripcion: String(descripcion || ''),
     peso: Number(peso) || 0.1,
     prioridad: Number(prioridad) || 100,
@@ -770,6 +1042,9 @@ router.patch('/reglas/:id', async (req, res) => {
     'descripcion',
     'criterio',
     'carpetaDestino',
+    'asuntoPlantilla',
+    'departamento',
+    'periodicidad',
     'peso',
     'prioridad',
     'activa',
@@ -795,6 +1070,12 @@ router.patch('/reglas/:id', async (req, res) => {
   }
   await regla.save();
   res.json({ ok: true, regla });
+});
+
+router.delete('/reglas/:id', async (req, res) => {
+  const regla = await ReglaClasificacion.findByIdAndDelete(req.params.id);
+  if (!regla) return res.status(404).json({ error: 'Regla no encontrada' });
+  res.json({ ok: true });
 });
 
 /** Observaciones de revisión (fecha + autor). */

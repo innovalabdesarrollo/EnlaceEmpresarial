@@ -96,6 +96,18 @@
             >
               Reglas
             </a>
+            <a
+              class="rounded-lg px-2.5 py-1.5 text-[var(--muted)] hover:bg-slate-100"
+              href="/contable/clientes"
+            >
+              Clientes
+            </a>
+            <a
+              class="rounded-lg px-2.5 py-1.5 text-[var(--muted)] hover:bg-slate-100"
+              href="/contable/integraciones"
+            >
+              Integraciones
+            </a>
           {/if}
           <span class="hidden text-[var(--muted)] sm:inline">{$user.nombre}</span>
           <span class="badge badge-info">{$user.rol}</span>
